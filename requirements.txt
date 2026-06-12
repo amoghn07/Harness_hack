@@ -1,11 +1,10 @@
-# Phase 1 runs with ZERO of these installed — the mock backends use only the
-# Python stdlib (sqlite3, json, urllib). These become required once you swap in
-# the real Composio / ClickHouse backends (Phase 1.5+).
+# The MOCK path (REPOHEALTH_GITHUB=mock, REPOHEALTH_STORE=sqlite) runs with ZERO
+# of these — it uses only the Python stdlib (sqlite3, json, urllib).
 
-# Real GitHub ingest via Composio
-composio-core>=0.5.0
+# Real GitHub ingest via Composio (SDK 1.x). Required for REPOHEALTH_GITHUB=composio.
+composio>=1.0.0rc2
 
-# Real storage backend
+# Real storage backend. Required for REPOHEALTH_STORE=clickhouse.
 clickhouse-connect>=0.7.0
 
 # Phase 2: remediation inference via AWS Bedrock (only when REPOHEALTH_INFERENCE=bedrock)

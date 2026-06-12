@@ -14,6 +14,7 @@ Action slugs (verified against the live toolkit):
 from __future__ import annotations
 
 import base64
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -62,11 +63,29 @@ class ComposioGitHubConnector(GitHubConnector):
         self._client = Composio(api_key=api_key)
         self._user_id = user_id
         self.now = now or datetime.now(timezone.utc)
+        # Manual execution requires an explicit toolkit version ("latest" is
+        # rejected). Resolve the current one once; allow an env override pin.
+        self._version = os.getenv("COMPOSIO_GITHUB_VERSION") or self._resolve_version()
+
+    def _resolve_version(self) -> str | None:
+        try:
+            return self._client.toolkits.get("github").meta.version
+        except Exception:  # pragma: no cover - network/SDK shape drift
+            return None
 
     def _exec(self, slug: str, **arguments: Any) -> Any:
-        resp = self._client.tools.execute(
-            slug, arguments=arguments, user_id=self._user_id
-        )
+        kwargs: dict[str, Any] = {"arguments": arguments, "user_id": self._user_id}
+        if self._version:
+            kwargs["version"] = self._version
+        else:
+            kwargs["dangerously_skip_version_check"] = True
+        resp = self._client.tools.execute(slug, **kwargs)
+        # The SDK returns a plain dict: {"data": ..., "error": ..., "successful": bool}
+        if isinstance(resp, dict):
+            if not resp.get("successful", True):
+                raise RuntimeError(f"{slug} failed: {resp.get('error')}")
+            return resp.get("data")
+        # Defensive fallback if a future SDK returns an object instead.
         if not getattr(resp, "successful", True):
             raise RuntimeError(f"{slug} failed: {getattr(resp, 'error', resp)}")
         return getattr(resp, "data", resp)

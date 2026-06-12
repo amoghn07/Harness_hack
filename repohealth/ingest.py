@@ -7,6 +7,7 @@ mock vs. real implementations from config.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .config import Config
@@ -14,7 +15,7 @@ from .connectors import GitHubConnector, RepoSnapshot
 from .connectors.base import DepFile
 from .models import Dep, Event
 from .parsers import parse_package_json, parse_requirements_txt
-from .registry import MockVersionRegistry, VersionRegistry
+from .registry import HttpVersionRegistry, MockVersionRegistry, VersionRegistry
 from .storage import Storage
 
 
@@ -55,6 +56,40 @@ def build_storage(cfg: Config) -> Storage:
     raise ValueError(f"Unknown store backend: {cfg.store_backend!r}")
 
 
+def build_registry(cfg: Config) -> VersionRegistry:
+    if cfg.registry_backend == "mock":
+        return MockVersionRegistry()
+    if cfg.registry_backend == "http":
+        return HttpVersionRegistry()
+    raise ValueError(f"Unknown registry backend: {cfg.registry_backend!r}")
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Leading numeric components of a version, stopping at the first
+    non-numeric part (e.g. a prerelease tag). "2.5.0-rc1" -> (2, 5, 0)."""
+    nums: list[int] = []
+    for part in re.split(r"[.\-+]", v):
+        if part.isdigit():
+            nums.append(int(part))
+        else:
+            break
+    return tuple(nums)
+
+
+def _is_outdated(current: str, latest: str) -> bool:
+    """Outdated only when `latest` is strictly newer than `current`.
+
+    Guards against false positives where a repo pins a version *ahead* of the
+    registry's `latest` dist-tag (common in monorepos / prereleases), which a
+    naive `current != latest` would wrongly flag as a downgrade-to-fix."""
+    if not current or not latest or current == latest:
+        return False
+    ct, lt = _version_tuple(current), _version_tuple(latest)
+    if ct and lt:
+        return lt > ct
+    return current != latest  # unparseable — fall back to inequality
+
+
 def _resolve_deps(
     repo: str, dep_files: list[DepFile], registry: VersionRegistry
 ) -> list[Dep]:
@@ -73,8 +108,7 @@ def _resolve_deps(
                     name=name,
                     current_ver=current,
                     latest_ver=latest,
-                    # Outdated only when we know both versions and they differ.
-                    outdated=bool(current and latest and current != latest),
+                    outdated=_is_outdated(current, latest),
                     ecosystem=f.ecosystem,
                     source_file=f.path,
                 )

@@ -34,6 +34,8 @@ class Config:
     github_backend: str = "mock"
     # "sqlite" | "clickhouse"
     store_backend: str = "sqlite"
+    # "mock" | "http" — where to resolve latest dependency versions from.
+    registry_backend: str = "mock"
 
     # SQLite (mock store) location — the agent's persistent memory.
     sqlite_path: str = "data/repohealth.db"
@@ -78,6 +80,7 @@ class Config:
         return cls(
             github_backend=os.getenv("REPOHEALTH_GITHUB", "mock"),
             store_backend=os.getenv("REPOHEALTH_STORE", "sqlite"),
+            registry_backend=os.getenv("REPOHEALTH_REGISTRY", "mock"),
             sqlite_path=os.getenv("REPOHEALTH_SQLITE_PATH", "data/repohealth.db"),
             clickhouse_host=os.getenv("CLICKHOUSE_HOST", "localhost"),
             clickhouse_port=int(os.getenv("CLICKHOUSE_PORT", "8123")),

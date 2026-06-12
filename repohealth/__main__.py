@@ -13,15 +13,16 @@ import argparse
 import sys
 
 from .config import Config
-from .ingest import build_connector, build_storage, ingest_repo
+from .ingest import build_connector, build_registry, build_storage, ingest_repo
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
     cfg = Config.from_env()
     connector = build_connector(cfg)
     storage = build_storage(cfg)
+    registry = build_registry(cfg)
     try:
-        result = ingest_repo(args.repo, connector, storage)
+        result = ingest_repo(args.repo, connector, storage, registry)
     finally:
         storage.close()
 

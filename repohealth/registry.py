@@ -41,18 +41,36 @@ class MockVersionRegistry(VersionRegistry):
 
 
 class HttpVersionRegistry(VersionRegistry):  # pragma: no cover - network
-    """Real registry lookups. Wire in for production dep checking."""
+    """Real registry lookups against npm and PyPI.
+
+    Failures (network error, 404 for a private/renamed package) resolve to None
+    rather than raising, so one bad dependency never aborts an ingest. Results
+    are cached per process to avoid hammering the registries on re-runs."""
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple[str, str], str | None] = {}
 
     def latest(self, ecosystem: str, name: str) -> str | None:
+        key = (ecosystem, name)
+        if key in self._cache:
+            return self._cache[key]
+        self._cache[key] = self._fetch(ecosystem, name)
+        return self._cache[key]
+
+    @staticmethod
+    def _fetch(ecosystem: str, name: str) -> str | None:
         import json
         import urllib.request
 
-        if ecosystem == "pypi":
-            url = f"https://pypi.org/pypi/{name}/json"
-            with urllib.request.urlopen(url, timeout=10) as r:
-                return json.load(r)["info"]["version"]
-        if ecosystem == "npm":
-            url = f"https://registry.npmjs.org/{name}/latest"
-            with urllib.request.urlopen(url, timeout=10) as r:
-                return json.load(r)["version"]
+        try:
+            if ecosystem == "pypi":
+                url = f"https://pypi.org/pypi/{name}/json"
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    return json.load(r)["info"]["version"]
+            if ecosystem == "npm":
+                url = f"https://registry.npmjs.org/{name}/latest"
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    return json.load(r)["version"]
+        except Exception:
+            return None
         return None
