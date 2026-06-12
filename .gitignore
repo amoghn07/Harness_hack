@@ -1,0 +1,16 @@
+# Local mock storage (SQLite) — the agent's "memory" between runs
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Env / secrets (Composio, ClickHouse, AWS keys go here)
+.env

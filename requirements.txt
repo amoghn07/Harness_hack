@@ -1,0 +1,12 @@
+# Phase 1 runs with ZERO of these installed — the mock backends use only the
+# Python stdlib (sqlite3, json, urllib). These become required once you swap in
+# the real Composio / ClickHouse backends (Phase 1.5+).
+
+# Real GitHub ingest via Composio
+composio-core>=0.5.0
+
+# Real storage backend
+clickhouse-connect>=0.7.0
+
+# Phase 2/3 (scoring + Bedrock inference) — not used yet
+boto3>=1.34.0
