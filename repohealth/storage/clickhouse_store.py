@@ -16,10 +16,11 @@ from .base import Storage
 # ClickHouse DDL — note ReplacingMergeTree for the derived tables so re-ingesting
 # a repo's snapshot collapses to the latest rows rather than duplicating.
 _DDL = [
+    # timestamp is Nullable: dep-observation events carry no natural time.
     """
     CREATE TABLE IF NOT EXISTS events (
-        repo String, event_type String, timestamp DateTime, payload String
-    ) ENGINE = MergeTree ORDER BY (repo, timestamp)
+        repo String, event_type String, timestamp Nullable(DateTime), payload String
+    ) ENGINE = MergeTree ORDER BY (repo) SETTINGS allow_nullable_key = 1
     """,
     """
     CREATE TABLE IF NOT EXISTS issues (

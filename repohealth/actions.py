@@ -19,6 +19,8 @@ REPOHEALTH_ACTIONS=composio.
 from __future__ import annotations
 
 import abc
+import base64
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -71,6 +73,41 @@ def pr_body(dep: OutdatedDep) -> str:
         f"Edited file: `{dep.source_file}`\n\n"
         f"_Opened automatically by RepoHealth._"
     )
+
+
+def bump_manifest(content: str, dep: OutdatedDep) -> tuple[str, bool]:
+    """Apply the version bump to a manifest's text.
+
+    Ecosystem-agnostic: rewrites the current version substring on the first line
+    that names the package, so it works for `requests==2.28.0` (requirements.txt)
+    and `"express": "^4.17.1"` (package.json) alike, preserving any range prefix
+    (^, ~, ==). Returns (new_content, changed?)."""
+    out: list[str] = []
+    bumped = False
+    for line in content.splitlines(keepends=True):
+        if (not bumped and dep.current_ver and dep.name in line
+                and dep.current_ver in line):
+            line = line.replace(dep.current_ver, dep.latest_ver, 1)
+            bumped = True
+        out.append(line)
+    return "".join(out), bumped
+
+
+def _decode_file(data: Any) -> tuple[str | None, str | None]:
+    """Pull (text, blob_sha) from a GITHUB_GET_REPOSITORY_CONTENT *file* response,
+    tolerating Composio's wrapper variations. The blob sha is required to update
+    a file via the contents API."""
+    node = data
+    if isinstance(node, dict) and isinstance(node.get("content"), dict):
+        node = node["content"]            # unwrap {"content": {...file...}}
+    if not isinstance(node, dict):
+        return None, None
+    raw, enc, sha = node.get("content"), node.get("encoding"), node.get("sha")
+    if isinstance(raw, str):
+        text = (base64.b64decode(raw).decode("utf-8", "replace")
+                if enc == "base64" else raw)
+        return text, sha
+    return None, sha
 
 
 class Actuator(abc.ABC):
@@ -155,11 +192,28 @@ class ComposioActuator(Actuator):  # pragma: no cover - needs creds + connection
         self._cfg = cfg
         self._client = Composio(api_key=cfg.composio_api_key)
         self._user_id = cfg.composio_user_id
+        # Manual execution requires an explicit toolkit version ("latest" is
+        # rejected); mirror the read-side connector's resolution.
+        self._version = os.getenv("COMPOSIO_GITHUB_VERSION") or self._resolve_version()
+
+    def _resolve_version(self) -> str | None:
+        try:
+            return self._client.toolkits.get("github").meta.version
+        except Exception:  # pragma: no cover - network/SDK shape drift
+            return None
 
     def _exec(self, slug: str, **arguments: Any) -> Any:
-        resp = self._client.tools.execute(
-            slug, arguments=arguments, user_id=self._user_id
-        )
+        kwargs: dict[str, Any] = {"arguments": arguments, "user_id": self._user_id}
+        if self._version:
+            kwargs["version"] = self._version
+        else:
+            kwargs["dangerously_skip_version_check"] = True
+        resp = self._client.tools.execute(slug, **kwargs)
+        # The SDK returns a plain dict: {"data": ..., "error": ..., "successful": bool}
+        if isinstance(resp, dict):
+            if not resp.get("successful", True):
+                raise RuntimeError(f"{slug} failed: {resp.get('error')}")
+            return resp.get("data")
         if not getattr(resp, "successful", True):
             raise RuntimeError(f"{slug} failed: {getattr(resp, 'error', resp)}")
         return getattr(resp, "data", resp)
@@ -171,13 +225,30 @@ class ComposioActuator(Actuator):  # pragma: no cover - needs creds + connection
             "GITHUB_GET_A_REFERENCE", owner=owner, repo=name, ref=f"heads/{base}"
         )["object"]["sha"]
         self._exec(
-            "GITHUB_CREATE_A_REF", owner=owner, repo=name,
+            "GITHUB_CREATE_A_REFERENCE", owner=owner, repo=name,
             ref=f"refs/heads/{dep.branch}", sha=head_sha,
         )
-        # A real bump edits dep.source_file; the read/transform/commit of the
-        # manifest line is the one piece left to wire per ecosystem.
-        # self._exec("GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS", owner=owner,
-        #            repo=name, path=dep.source_file, branch=dep.branch, ...)
+        # Commit the actual version bump on the new branch, so the PR carries a
+        # real diff (GitHub rejects a PR whose head == base with "no commits").
+        current = self._exec(
+            "GITHUB_GET_REPOSITORY_CONTENT", owner=owner, repo=name,
+            path=dep.source_file, ref=dep.branch,
+        )
+        text, blob_sha = _decode_file(current)
+        if text is None:
+            raise RuntimeError(
+                f"could not read {dep.source_file} to bump {dep.name}")
+        new_text, changed = bump_manifest(text, dep)
+        if not changed:
+            raise RuntimeError(
+                f"{dep.name} {dep.current_ver} not found in {dep.source_file}")
+        self._exec(
+            "GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS", owner=owner, repo=name,
+            path=dep.source_file, branch=dep.branch,
+            message=f"bot: bump {dep.name} to {dep.latest_ver}",
+            content=base64.b64encode(new_text.encode("utf-8")).decode("ascii"),
+            sha=blob_sha,
+        )
         pr = self._exec(
             "GITHUB_CREATE_A_PULL_REQUEST", owner=owner, repo=name,
             title=f"bot: bump {dep.name} to {dep.latest_ver}",

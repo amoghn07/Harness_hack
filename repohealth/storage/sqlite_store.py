@@ -24,7 +24,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     repo       TEXT NOT NULL,
     event_type TEXT NOT NULL,
-    timestamp  TEXT NOT NULL,
+    timestamp  TEXT,            -- nullable: dep-observation events have no natural time
     payload    TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS issues (
