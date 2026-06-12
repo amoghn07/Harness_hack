@@ -110,7 +110,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"  {result.analysis.summary}")
         for a in result.analysis.actions:
             print(f"   [{a.priority}] {a.kind} {a.target}: {a.rationale}")
-<<<<<<< HEAD
     if result.evaluation is not None:
         e = result.evaluation
         print("\nPlan evaluation (graded against the detection):")
@@ -124,7 +123,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
         verdict = "BLOCKED — plan not safe to act on" if result.action_blocked \
             else "PASS — safe for Phase 3 to act"
         print(f"  gate            : {verdict}")
-=======
     if result.actions is not None:
         acts = result.actions
         print(f"\nActions executed via {cfg.actions_backend}:")
@@ -134,6 +132,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print(f"   issue #{r.target}: {r.detail} -> {r.url}")
         if acts.report_result is not None:
             print(f"   report -> {acts.report_result.url}")
+    elif result.escalated and result.action_blocked:
+        print("\n(act skipped — plan blocked by the safety gate)")
     elif result.escalated:
         print("\n(act skipped — dry run)")
     return 0
@@ -156,7 +156,6 @@ def _cmd_report(args: argparse.Namespace) -> int:
     finally:
         storage.close()
     print(report.markdown)
->>>>>>> 3efa6b8c3ff59acf1a87a2c8f746ba5a7f9c0311
     return 0
 
 

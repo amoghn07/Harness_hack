@@ -7,14 +7,17 @@ plain, testable Python so the steps are exercisable without the scheduler.
     fetch   -> ingest the latest snapshot into the store (Phase 1)
     score   -> four SQL aggregations -> 0-100 health score (scoring.py); the
                score is recorded to history every cycle for the trend chart.
-    decide  -> below threshold? collect offenders + ask Bedrock for a plan
+    decide  -> below threshold? collect offenders + ask Bedrock for a plan,
+               then grade that plan against the detection (the safety gate).
     act      -> Phase 3: Composio drafts bump PRs, closes stale issues, and
                publishes the weekly report (actions.py + report.py).
 
-Two gates keep cost and side effects in check:
+Three gates keep cost, correctness, and side effects in check:
   * Bedrock only runs when score < threshold (decide).
-  * Actions only run when escalated AND act=True (act). The score is still
-    recorded when healthy, so the trend keeps filling in.
+  * Actions only run when the plan PASSED the eval gate (not hallucinated /
+    malformed) — `action_blocked` is the interlock.
+  * Actions only run when escalated AND act=True. The score is still recorded
+    when healthy, so the trend keeps filling in.
 """
 
 from __future__ import annotations
@@ -26,13 +29,9 @@ from .actions import ActionResult, build_actuator
 from .bedrock import Analysis, build_analyzer
 from .config import Config
 from .detect import Detection, detect
-<<<<<<< HEAD
 from .evaluate import EvalResult, evaluate
 from .ingest import build_connector, build_registry, build_storage, ingest_repo
-=======
-from .ingest import build_connector, build_registry, build_storage, ingest_repo
 from .report import WeeklyReport, build_report, score_history
->>>>>>> 3efa6b8c3ff59acf1a87a2c8f746ba5a7f9c0311
 from .scoring import HealthScore, score_repo
 from .storage import Storage
 
@@ -51,13 +50,9 @@ class CycleResult:
     score: HealthScore
     detection: Detection
     analysis: Analysis | None   # None when the repo was healthy (gate not tripped)
-<<<<<<< HEAD
     evaluation: EvalResult | None = None  # set when analysis ran — the safety check
-    action_blocked: bool = False  # True if the plan failed the gate (don't let Phase 3 act)
-    acted: bool = False         # Phase 3 will flip this once actions execute
-=======
-    actions: ActResult | None = None   # None when not escalated or act=False
->>>>>>> 3efa6b8c3ff59acf1a87a2c8f746ba5a7f9c0311
+    action_blocked: bool = False  # True if the plan failed the gate (Phase 3 must not act)
+    actions: ActResult | None = None   # None when not escalated, blocked, or act=False
 
     @property
     def escalated(self) -> bool:
@@ -124,31 +119,21 @@ def run_cycle(
         evaluation: EvalResult | None = None
         action_blocked = False
         if detection.needs_attention and not detection.is_empty:
-<<<<<<< HEAD
-            analyzer = build_analyzer(cfg)
-            analysis = analyzer.analyze(detection)
-            # Grade the plan against ground truth (the Detection). This is the
-            # safety gate: a hallucinated or malformed action must not reach
-            # Phase 3, which acts on real GitHub with no human in the loop.
+            analysis = build_analyzer(cfg).analyze(detection)
+            # Grade the plan against ground truth (the Detection). Safety gate:
+            # a hallucinated or malformed action must not reach Phase 3, which
+            # acts on real GitHub with no human in the loop.
             evaluation = evaluate(detection, analysis)
             action_blocked = not evaluation.safe_to_act
 
-        # 4. act — Phase 3 consumes `analysis` + `detection` only when the plan
-        # passed the gate. Left unwired here; `action_blocked` is the interlock.
-        return CycleResult(repo=repo, score=score, detection=detection,
-                           analysis=analysis, evaluation=evaluation,
-                           action_blocked=action_blocked)
-=======
-            analysis = build_analyzer(cfg).analyze(detection)
-
-        # 4. act — only when escalated and not a dry run.
+        # 4. act — only when escalated, the plan passed the gate, and not a dry run.
         actions: ActResult | None = None
-        if analysis is not None and act:
+        if analysis is not None and not action_blocked and act:
             actions = _act(repo, cfg, storage, score, detection)
 
         return CycleResult(repo=repo, score=score, detection=detection,
-                           analysis=analysis, actions=actions)
->>>>>>> 3efa6b8c3ff59acf1a87a2c8f746ba5a7f9c0311
+                           analysis=analysis, evaluation=evaluation,
+                           action_blocked=action_blocked, actions=actions)
     finally:
         if own_storage:
             storage.close()
