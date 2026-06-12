@@ -11,6 +11,23 @@ import os
 from dataclasses import dataclass
 
 
+def load_dotenv(path: str = ".env") -> None:
+    """Minimal .env loader (stdlib only). Lines are KEY=VALUE; surrounding
+    quotes are stripped; existing environment variables are NOT overridden.
+    Silently does nothing if the file is absent."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.split(" #", 1)[0].strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
+
 @dataclass
 class Config:
     # "mock" | "composio"
@@ -33,6 +50,7 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        load_dotenv()
         return cls(
             github_backend=os.getenv("REPOHEALTH_GITHUB", "mock"),
             store_backend=os.getenv("REPOHEALTH_STORE", "sqlite"),

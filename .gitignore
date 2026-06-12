@@ -12,5 +12,5 @@ venv/
 *.egg-info/
 .pytest_cache/
 
-# Env / secrets (Composio, ClickHouse, AWS keys go here)
+# Env / secrets (Composio, Gemini, ClickHouse, AWS keys go here)
 .env
