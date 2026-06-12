@@ -68,9 +68,32 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_connect(args: argparse.Namespace) -> int:
+    """Generate the GitHub OAuth link, or check connection status with --check."""
+    from .connect import check_connection, create_link
+
+    cfg = Config.from_env()
+    if args.check:
+        status = check_connection(cfg)
+        print(f"GitHub connection for user '{cfg.composio_user_id}': "
+              f"{'CONNECTED' if status.connected else 'NOT CONNECTED'} "
+              f"(status={status.status}, account={status.account_id})")
+        return 0 if status.connected else 1
+    url = create_link(cfg)
+    print("Authorize GitHub by opening this URL in your browser:\n")
+    print(f"  {url}\n")
+    print("Then run:  python -m repohealth connect --check")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="repohealth")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_connect = sub.add_parser("connect", help="Authorize GitHub via Composio OAuth")
+    p_connect.add_argument("--check", action="store_true",
+                           help="Check connection status instead of creating a link")
+    p_connect.set_defaults(func=_cmd_connect)
 
     p_ingest = sub.add_parser("ingest", help="Fetch a repo snapshot and store it")
     p_ingest.add_argument("--repo", required=True, help="owner/name")

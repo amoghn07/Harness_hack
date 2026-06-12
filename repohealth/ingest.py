@@ -36,7 +36,7 @@ def build_connector(cfg: Config) -> GitHubConnector:
     if cfg.github_backend == "composio":
         from .connectors.composio_github import ComposioGitHubConnector
 
-        return ComposioGitHubConnector(cfg.composio_api_key)
+        return ComposioGitHubConnector(cfg.composio_api_key, cfg.composio_user_id)
     raise ValueError(f"Unknown github backend: {cfg.github_backend!r}")
 
 

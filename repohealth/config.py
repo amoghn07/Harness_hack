@@ -47,6 +47,10 @@ class Config:
 
     # Composio (real GitHub) — only read when github_backend == "composio".
     composio_api_key: str = ""
+    # Identifies the end-user whose connected GitHub account Composio uses, and
+    # the OAuth auth config backing it.
+    composio_user_id: str = "repohealth"
+    composio_auth_config_id: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -61,4 +65,6 @@ class Config:
             clickhouse_password=os.getenv("CLICKHOUSE_PASSWORD", ""),
             clickhouse_database=os.getenv("CLICKHOUSE_DATABASE", "repohealth"),
             composio_api_key=os.getenv("COMPOSIO_API_KEY", ""),
+            composio_user_id=os.getenv("COMPOSIO_USER_ID", "repohealth"),
+            composio_auth_config_id=os.getenv("COMPOSIO_AUTH_CONFIG_ID", ""),
         )
