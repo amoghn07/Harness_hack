@@ -68,6 +68,50 @@ def _cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_score(score) -> None:
+    """Shared rendering for the score breakdown."""
+    print(f"Health score for {score.repo}: {score.score}/100")
+    print("  signals (weight x badness = penalty):")
+    for s in score.signals:
+        print(f"    {s.label:<32} {s.detail:<34} "
+              f"{s.weight:.0%} x {s.badness:.2f} = -{s.penalty:.1f}")
+
+
+def _cmd_score(args: argparse.Namespace) -> int:
+    """Score a repo from the stored snapshot (Phase 2 'score' step)."""
+    from .scoring import score_repo
+
+    cfg = Config.from_env()
+    storage = build_storage(cfg)
+    try:
+        storage.init_schema()
+        score = score_repo(storage, args.repo)
+    finally:
+        storage.close()
+    _print_score(score)
+    return 0
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Run one fetch -> score -> decide cycle (what the scheduled agent runs)."""
+    from .orchestrator import run_cycle
+
+    cfg = Config.from_env()
+    result = run_cycle(args.repo, cfg, skip_fetch=args.no_fetch)
+    _print_score(result.score)
+    det = result.detection
+    print(f"\nThreshold {det.threshold} -> "
+          f"{'ESCALATE' if det.needs_attention else 'healthy, no action'}")
+    print(f"  outdated deps : {len(det.outdated_deps)}")
+    print(f"  stale issues  : {len(det.stale_issues)}")
+    if result.analysis is not None:
+        print(f"\nBedrock analysis ({result.analysis.model}):")
+        print(f"  {result.analysis.summary}")
+        for a in result.analysis.actions:
+            print(f"   [{a.priority}] {a.kind} {a.target}: {a.rationale}")
+    return 0
+
+
 def _cmd_connect(args: argparse.Namespace) -> int:
     """Generate the GitHub OAuth link, or check connection status with --check."""
     from .connect import check_connection, create_link
@@ -102,6 +146,17 @@ def main(argv: list[str] | None = None) -> int:
     p_show = sub.add_parser("show", help="Read back stored health signals")
     p_show.add_argument("--repo", required=True, help="owner/name")
     p_show.set_defaults(func=_cmd_show)
+
+    p_score = sub.add_parser("score", help="Compute the 0-100 health score")
+    p_score.add_argument("--repo", required=True, help="owner/name")
+    p_score.set_defaults(func=_cmd_score)
+
+    p_run = sub.add_parser(
+        "run", help="Run one fetch->score->decide cycle (the scheduled agent)")
+    p_run.add_argument("--repo", required=True, help="owner/name")
+    p_run.add_argument("--no-fetch", action="store_true",
+                       help="Score the existing snapshot without re-ingesting")
+    p_run.set_defaults(func=_cmd_run)
 
     args = parser.parse_args(argv)
     return args.func(args)

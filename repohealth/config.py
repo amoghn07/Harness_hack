@@ -52,6 +52,26 @@ class Config:
     composio_user_id: str = "repohealth"
     composio_auth_config_id: str = ""
 
+    # ---- Phase 2: score & detect -------------------------------------------
+    # Below this 0–100 health score, the cycle escalates to Bedrock for
+    # remediation analysis. At or above it, inference is skipped (cost ≈ 0 on
+    # healthy repos — the whole point of the gate).
+    score_threshold: int = 60
+
+    # Reasoning backend: "mock" (deterministic, offline, no creds) | "bedrock".
+    inference_backend: str = "mock"
+
+    # AWS Bedrock (real inference) — only read when inference_backend=="bedrock".
+    # boto3 also honors a shared ~/.aws/credentials profile; these env vars take
+    # precedence when set.
+    aws_region: str = "us-east-1"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""
+    # Bedrock Claude model ID. Defaults to the latest Opus; many accounts must
+    # use a region-prefixed inference-profile ID (e.g. us.anthropic.claude-opus-4-8).
+    bedrock_model_id: str = "anthropic.claude-opus-4-8"
+
     @classmethod
     def from_env(cls) -> "Config":
         load_dotenv()
@@ -67,4 +87,13 @@ class Config:
             composio_api_key=os.getenv("COMPOSIO_API_KEY", ""),
             composio_user_id=os.getenv("COMPOSIO_USER_ID", "repohealth"),
             composio_auth_config_id=os.getenv("COMPOSIO_AUTH_CONFIG_ID", ""),
+            score_threshold=int(os.getenv("REPOHEALTH_SCORE_THRESHOLD", "60")),
+            inference_backend=os.getenv("REPOHEALTH_INFERENCE", "mock"),
+            aws_region=os.getenv("AWS_REGION", "us-east-1"),
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", ""),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            aws_session_token=os.getenv("AWS_SESSION_TOKEN", ""),
+            bedrock_model_id=os.getenv(
+                "BEDROCK_MODEL_ID", "anthropic.claude-opus-4-8"
+            ),
         )

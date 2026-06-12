@@ -1,0 +1,53 @@
+# Render blueprint — the scheduled Phase 2 agent.
+#
+# A cron job runs the fetch -> score -> decide cycle every 24h. Guild AI drives
+# the same sequence locally; on Render the schedule is the trigger. Secrets are
+# set in the Render dashboard (or `sync: false` prompts for them on deploy) — do
+# NOT commit real values here.
+#
+# Docs: https://render.com/docs/cronjobs  •  https://render.com/docs/blueprint-spec
+
+services:
+  - type: cron
+    name: repohealth-score
+    runtime: python
+    plan: starter
+    # Daily at 06:00 UTC. Adjust per the spec's "every 24 hours".
+    schedule: "0 6 * * *"
+    buildCommand: pip install -r requirements.txt
+    # TARGET_REPO is read below; swap to a loop over repos for multi-repo runs.
+    startCommand: python -m repohealth run --repo $TARGET_REPO
+    envVars:
+      - key: TARGET_REPO
+        sync: false                # owner/name to monitor
+      - key: REPOHEALTH_GITHUB
+        value: composio
+      - key: REPOHEALTH_STORE
+        value: clickhouse
+      - key: REPOHEALTH_INFERENCE
+        value: bedrock
+      - key: REPOHEALTH_SCORE_THRESHOLD
+        value: "60"
+      # Secrets — set in the Render dashboard, never committed.
+      - key: COMPOSIO_API_KEY
+        sync: false
+      - key: COMPOSIO_USER_ID
+        sync: false
+      - key: CLICKHOUSE_HOST
+        sync: false
+      - key: CLICKHOUSE_PORT
+        sync: false
+      - key: CLICKHOUSE_USER
+        sync: false
+      - key: CLICKHOUSE_PASSWORD
+        sync: false
+      - key: CLICKHOUSE_DATABASE
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: BEDROCK_MODEL_ID
+        sync: false
