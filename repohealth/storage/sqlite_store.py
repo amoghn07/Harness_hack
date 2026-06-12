@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS ci_runs (
     timestamp TEXT NOT NULL,
     workflow  TEXT
 );
+CREATE TABLE IF NOT EXISTS scores (
+    repo      TEXT NOT NULL,
+    score     INTEGER NOT NULL,
+    timestamp TEXT NOT NULL
+);
 """
 
 
@@ -108,6 +113,14 @@ class SQLiteStorage(Storage):
             "VALUES (?, ?, ?, ?, ?)",
             [(r.repo, r.branch, r.status, _iso(r.timestamp), r.workflow)
              for r in runs],
+        )
+        self._conn.commit()
+
+    def record_score(self, repo: str, score: int, timestamp) -> None:
+        # Append-only: the weekly report reads this back as the trend.
+        self._conn.execute(
+            "INSERT INTO scores (repo, score, timestamp) VALUES (?, ?, ?)",
+            (repo, int(score), _iso(timestamp)),
         )
         self._conn.commit()
 

@@ -94,11 +94,11 @@ def _cmd_score(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    """Run one fetch -> score -> decide cycle (what the scheduled agent runs)."""
+    """Run one fetch -> score -> decide -> act cycle (the scheduled agent)."""
     from .orchestrator import run_cycle
 
     cfg = Config.from_env()
-    result = run_cycle(args.repo, cfg, skip_fetch=args.no_fetch)
+    result = run_cycle(args.repo, cfg, skip_fetch=args.no_fetch, act=not args.no_act)
     _print_score(result.score)
     det = result.detection
     print(f"\nThreshold {det.threshold} -> "
@@ -110,6 +110,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"  {result.analysis.summary}")
         for a in result.analysis.actions:
             print(f"   [{a.priority}] {a.kind} {a.target}: {a.rationale}")
+<<<<<<< HEAD
     if result.evaluation is not None:
         e = result.evaluation
         print("\nPlan evaluation (graded against the detection):")
@@ -123,6 +124,39 @@ def _cmd_run(args: argparse.Namespace) -> int:
         verdict = "BLOCKED — plan not safe to act on" if result.action_blocked \
             else "PASS — safe for Phase 3 to act"
         print(f"  gate            : {verdict}")
+=======
+    if result.actions is not None:
+        acts = result.actions
+        print(f"\nActions executed via {cfg.actions_backend}:")
+        for r in acts.pr_results:
+            print(f"   PR  {r.branch}: {r.detail} -> {r.url}")
+        for r in acts.issue_results:
+            print(f"   issue #{r.target}: {r.detail} -> {r.url}")
+        if acts.report_result is not None:
+            print(f"   report -> {acts.report_result.url}")
+    elif result.escalated:
+        print("\n(act skipped — dry run)")
+    return 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    """Render the weekly Markdown report from the stored snapshot + history."""
+    from .detect import detect
+    from .report import build_report, score_history
+    from .scoring import score_repo
+
+    cfg = Config.from_env()
+    storage = build_storage(cfg)
+    try:
+        storage.init_schema()
+        score = score_repo(storage, args.repo)
+        detect(storage, score, cfg.score_threshold)  # validates the snapshot exists
+        report = build_report(score, score_history(storage, args.repo),
+                              target=cfg.report_target)
+    finally:
+        storage.close()
+    print(report.markdown)
+>>>>>>> 3efa6b8c3ff59acf1a87a2c8f746ba5a7f9c0311
     return 0
 
 
@@ -145,6 +179,14 @@ def _cmd_connect(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The report markdown carries a unicode trend sparkline; the published copy
+    # is UTF-8 (GitHub/Notion handle it), but a legacy Windows console (cp1252)
+    # can't print it. Make stdout tolerant rather than crash on display.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
     parser = argparse.ArgumentParser(prog="repohealth")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -166,11 +208,17 @@ def main(argv: list[str] | None = None) -> int:
     p_score.set_defaults(func=_cmd_score)
 
     p_run = sub.add_parser(
-        "run", help="Run one fetch->score->decide cycle (the scheduled agent)")
+        "run", help="Run one fetch->score->decide->act cycle (the scheduled agent)")
     p_run.add_argument("--repo", required=True, help="owner/name")
     p_run.add_argument("--no-fetch", action="store_true",
                        help="Score the existing snapshot without re-ingesting")
+    p_run.add_argument("--no-act", action="store_true",
+                       help="Analyze but execute no actions (dry run)")
     p_run.set_defaults(func=_cmd_run)
+
+    p_report = sub.add_parser("report", help="Render the weekly Markdown report")
+    p_report.add_argument("--repo", required=True, help="owner/name")
+    p_report.set_defaults(func=_cmd_report)
 
     args = parser.parse_args(argv)
     return args.func(args)

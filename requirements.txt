@@ -2,6 +2,8 @@
 # of these — it uses only the Python stdlib (sqlite3, json, urllib).
 
 # Real GitHub ingest via Composio (SDK 1.x). Required for REPOHEALTH_GITHUB=composio.
+# Phase 3 reuses this same package to draft PRs, close stale issues, and post the
+# weekly report — required for REPOHEALTH_ACTIONS=composio.
 composio>=1.0.0rc2
 
 # Real storage backend. Required for REPOHEALTH_STORE=clickhouse.
@@ -14,3 +16,7 @@ boto3>=1.34.0
 # Scoring/detection/orchestration themselves are stdlib-only; Guild AI is the
 # workflow runner used to drive the cycle on a schedule.
 guildai>=0.9.0
+
+# Phase 3: optional — only if publishing the weekly report straight to Notion
+# (REPOHEALTH_REPORT_TARGET=notion) without going through Composio.
+notion-client>=2.2.0

@@ -7,7 +7,7 @@ auto-drafts PRs, and posts weekly health reports — no human in the loop.
 
 - ✅ **Phase 1 — Ingest & store**
 - ✅ **Phase 2 — Score & detect** (health score 0–100, scheduled, Bedrock-gated)
-- ⬜ Phase 3 — Act & publish (auto-PRs, stale-issue close, weekly report)
+- ✅ **Phase 3 — Act & publish** (auto-PRs, stale-issue close, weekly report)
 
 ## Phase 1: ingest & store
 
@@ -47,9 +47,10 @@ Bedrock for a remediation plan — so inference cost stays ≈0 on healthy repos
 # Just the score breakdown (reads the existing snapshot)
 python -m repohealth score --repo acme/widget
 
-# Full cycle the scheduled agent runs: fetch -> score -> decide
+# Full cycle the scheduled agent runs: fetch -> score -> decide -> act
 python -m repohealth run --repo acme/widget
 python -m repohealth run --repo acme/widget --no-fetch   # score what's stored
+python -m repohealth run --repo acme/widget --no-act     # analyze, don't act
 ```
 
 ### Signals & weights
@@ -69,10 +70,34 @@ Python from `MAX(timestamp)`).
 ### Orchestration (Guild AI)
 
 `orchestrator.run_cycle()` is the `fetch → score → decide → act` sequence Guild
-AI drives on a 24h cron (Render). The cost gate lives in *decide*: the Bedrock
-analyzer (`bedrock.py`) only fires when `score < threshold`. The `act` step is
-Phase 3 — `CycleResult` already carries the `Detection` (with `bot/bump-{pkg}-
-{ver}` branch names) and the prioritized `Analysis` it will consume.
+AI drives on a 24h cron (Render). Two gates keep cost and side effects in check:
+Bedrock (`bedrock.py`) only fires when `score < threshold` (*decide*), and the
+real actions only run when escalated *and* not a dry run (*act*). The score is
+recorded to history every cycle regardless, so the report's trend keeps filling
+in even on healthy repos.
+
+## Phase 3: act & publish
+
+When the gate trips and Bedrock has a plan, Composio executes three real actions
+— behind one `Actuator` interface, so the mock exercises the whole path offline:
+
+1. **Auto-draft a bump PR** per outdated dep — branch `bot/bump-{package}-
+   {version}`, body carries a changelog diff summary
+   ([`changelog_summary`](repohealth/actions.py)).
+2. **Close stale issues** — comments *"Closing as stale after 90 days; reopen if
+   still relevant"*, applies the `stale` label, then closes.
+3. **Publish the weekly report** — posts a Markdown summary (score, a trend
+   sparkline pulled from the stored score history, and links to the drafted PRs)
+   to a GitHub Discussion or a Notion page.
+
+```bash
+# Render just the report markdown from the stored snapshot + history
+python -m repohealth report --repo acme/widget
+```
+
+The trend chart reads the append-only `scores` table, written by `run_cycle`
+every cycle. `report.py` renders a dependency-free unicode sparkline that shows
+in both GitHub Discussions and Notion.
 
 ## Architecture
 
@@ -84,6 +109,7 @@ The pipeline depends only on small interfaces, so mock → real is a config flip
 | Storage / memory   | `Storage`           | `SQLiteStorage`        | `ClickHouseStorage`       |
 | Latest versions    | `VersionRegistry`   | `MockVersionRegistry`  | `HttpVersionRegistry`     |
 | Remediation        | `BedrockAnalyzerBase` | `MockBedrockAnalyzer` | `BedrockAnalyzer`        |
+| Act & publish      | `Actuator`          | `MockActuator`         | `ComposioActuator`        |
 
 The Composio / ClickHouse / Bedrock classes are guided stubs — the exact
 actions, DDL, and request bodies are written inline; wiring them is mechanical
@@ -103,9 +129,13 @@ cp .env.example .env
 | ---------------------- | --------------------- | -------------------------- |
 | `REPOHEALTH_GITHUB`    | `mock` \| `composio`  | `COMPOSIO_API_KEY`         |
 | `REPOHEALTH_STORE`     | `sqlite` \| `clickhouse` | `CLICKHOUSE_*`          |
+| `REPOHEALTH_REGISTRY`  | `mock` \| `http`      | none (hits npm/PyPI)       |
 | `REPOHEALTH_INFERENCE` | `mock` \| `bedrock`   | `AWS_*` + `BEDROCK_MODEL_ID` |
+| `REPOHEALTH_ACTIONS`   | `mock` \| `composio`  | `COMPOSIO_API_KEY`         |
 
-`REPOHEALTH_SCORE_THRESHOLD` (default 60) sets the Bedrock escalation gate. See
+`REPOHEALTH_SCORE_THRESHOLD` (default 60) sets the Bedrock escalation gate.
+`REPOHEALTH_REPORT_TARGET` (`github` \| `notion`) picks where the weekly report
+publishes — Notion adds `NOTION_API_KEY` / `NOTION_PARENT_PAGE_ID`. See
 [`.env.example`](.env.example) for every key and [`render.yaml`](render.yaml)
 for the scheduled-agent deploy (secrets live in the Render dashboard, never in
 git).
@@ -121,7 +151,7 @@ python -m pytest tests/ -q
 
 ```
 repohealth/
-    __main__.py        CLI (connect, ingest, show, score, run)
+    __main__.py        CLI (connect, ingest, show, score, run, report)
     config.py          env-driven backend selection + credentials
     models.py          Event, Issue, Dep, CiRun
     ingest.py          Phase 1 pipeline + backend factories
@@ -130,13 +160,16 @@ repohealth/
     scoring.py         Phase 2: four signals -> 0-100 health score
     detect.py          Phase 2: collect the specific offenders
     bedrock.py         Phase 2: remediation analysis (mock + Bedrock)
-    orchestrator.py    Phase 2: fetch -> score -> decide -> act cycle
+    actions.py         Phase 3: Actuator — bump PRs, close issues, publish (mock + Composio)
+    report.py          Phase 3: weekly Markdown report + trend sparkline
+    orchestrator.py    fetch -> score -> decide -> act cycle (all phases)
     connect.py         Composio GitHub OAuth link / status
     connectors/        GitHubConnector: base, mock, composio stub
-    storage/           Storage: base, sqlite, clickhouse stub
+    storage/           Storage: base, sqlite, clickhouse stub (+ scores history)
 tests/
     test_ingest.py     Phase 1 end-to-end + unit
     test_scoring.py    Phase 2 scoring, detection, orchestration
+    test_actions.py    Phase 3 actions, report, act-and-publish cycle
 .env.example           all credentials, documented
 render.yaml            scheduled-agent (cron) deploy blueprint
 ```

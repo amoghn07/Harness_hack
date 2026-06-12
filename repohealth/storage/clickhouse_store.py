@@ -42,6 +42,12 @@ _DDL = [
         workflow String
     ) ENGINE = MergeTree ORDER BY (repo, timestamp)
     """,
+    # Append-only score history — the source of the weekly report's trend chart.
+    """
+    CREATE TABLE IF NOT EXISTS scores (
+        repo String, score UInt8, timestamp DateTime
+    ) ENGINE = MergeTree ORDER BY (repo, timestamp)
+    """,
 ]
 
 
@@ -95,6 +101,12 @@ class ClickHouseStorage(Storage):  # pragma: no cover - needs a server
             "ci_runs",
             [[r.repo, r.branch, r.status, r.timestamp, r.workflow] for r in runs],
             column_names=["repo", "branch", "status", "timestamp", "workflow"],
+        )
+
+    def record_score(self, repo: str, score: int, timestamp) -> None:
+        self._client.insert(
+            "scores", [[repo, int(score), timestamp]],
+            column_names=["repo", "score", "timestamp"],
         )
 
     def query(self, sql: str, params: Sequence[Any] | None = None) -> list[tuple]:

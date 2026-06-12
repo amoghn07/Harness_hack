@@ -87,6 +87,21 @@ class Config:
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    # ---- Phase 3: act & publish --------------------------------------------
+    # How the three real actions (bump PRs, stale-issue closes, weekly report)
+    # are executed. "mock" records intended actions offline; "composio" hits
+    # GitHub for real (reuses the same connected account as the connector).
+    actions_backend: str = "mock"
+
+    # Where the weekly report is published: a GitHub Discussion or a Notion page.
+    report_target: str = "github"          # "github" | "notion"
+    report_repo: str = ""                  # owner/name to post to; "" = monitored repo
+    github_discussion_category: str = ""   # category id for GITHUB_CREATE_A_DISCUSSION
+
+    # Notion (only when report_target == "notion").
+    notion_api_key: str = ""
+    notion_parent_page_id: str = ""
+
     @classmethod
     def from_env(cls) -> "Config":
         load_dotenv()
@@ -112,9 +127,18 @@ class Config:
             bedrock_model_id=os.getenv(
                 "BEDROCK_MODEL_ID", "anthropic.claude-opus-4-8"
             ),
+<<<<<<< HEAD
             aws_bearer_token_bedrock=os.getenv("AWS_BEARER_TOKEN_BEDROCK", ""),
             tracing_backend=os.getenv("REPOHEALTH_TRACING", "none"),
             langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
             langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
             langfuse_host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+=======
+            actions_backend=os.getenv("REPOHEALTH_ACTIONS", "mock"),
+            report_target=os.getenv("REPOHEALTH_REPORT_TARGET", "github"),
+            report_repo=os.getenv("REPOHEALTH_REPORT_REPO", ""),
+            github_discussion_category=os.getenv("GITHUB_DISCUSSION_CATEGORY", ""),
+            notion_api_key=os.getenv("NOTION_API_KEY", ""),
+            notion_parent_page_id=os.getenv("NOTION_PARENT_PAGE_ID", ""),
+>>>>>>> 3efa6b8c3ff59acf1a87a2c8f746ba5a7f9c0311
         )
