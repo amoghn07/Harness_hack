@@ -177,6 +177,14 @@ def _cmd_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    """Serve the read-only health dashboard over the stored snapshot."""
+    from .dashboard import serve
+
+    serve(Config.from_env(), port=args.port, host=args.host)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # The report markdown carries a unicode trend sparkline; the published copy
     # is UTF-8 (GitHub/Notion handle it), but a legacy Windows console (cp1252)
@@ -218,6 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     p_report = sub.add_parser("report", help="Render the weekly Markdown report")
     p_report.add_argument("--repo", required=True, help="owner/name")
     p_report.set_defaults(func=_cmd_report)
+
+    p_dash = sub.add_parser("dashboard", help="Serve the read-only health dashboard")
+    p_dash.add_argument("--host", default="127.0.0.1",
+                        help="bind address; use 0.0.0.0 to expose when hosting")
+    p_dash.add_argument("--port", type=int, default=8000)
+    p_dash.set_defaults(func=_cmd_dashboard)
 
     args = parser.parse_args(argv)
     return args.func(args)
