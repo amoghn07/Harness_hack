@@ -15,10 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .scoring import HealthScore
+from .scoring import HealthScore, stale_age_days
 from .storage import Storage
-
-STALE_AGE_DAYS = 90
 
 
 @dataclass
@@ -79,7 +77,7 @@ def detect(storage: Storage, health: HealthScore, threshold: int) -> Detection:
         "SELECT id, title, age_days, labels FROM issues "
         "WHERE repo=? AND state='open' AND age_days > ? "
         "ORDER BY age_days DESC",
-        [repo, STALE_AGE_DAYS],
+        [repo, stale_age_days()],
     )
     stale_issues = [
         StaleIssue(id=int(r[0]), title=r[1] or "", age_days=int(r[2]),

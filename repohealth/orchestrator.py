@@ -67,18 +67,38 @@ def _act(
     repo: str, cfg: Config, storage: Storage, score: HealthScore,
     detection: Detection,
 ) -> ActResult:
-    """Phase 3: execute the three real actions and publish the report."""
+    """Phase 3: execute the three real actions and publish the report.
+
+    Each action is isolated: a single failure (e.g. Discussions not enabled for
+    the report) is captured as a failed ActionResult rather than aborting the
+    cycle, so the remaining real work still lands. This is a no-human-in-the-loop
+    agent — one flaky call must not strand the others."""
+
     actuator = build_actuator(cfg)
-    pr_results = [actuator.draft_dep_pr(repo, d) for d in detection.outdated_deps]
+
+    def _try(kind: str, target: str, fn):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - surface, don't abort the cycle
+            return ActionResult(kind=kind, target=target, ok=False,
+                                 detail=f"{type(exc).__name__}: {exc}")
+
+    pr_results = [
+        _try("pull_request", f"{d.ecosystem}:{d.name}",
+             lambda d=d: actuator.draft_dep_pr(repo, d))
+        for d in detection.outdated_deps
+    ]
     issue_results = [
-        actuator.close_stale_issue(repo, i) for i in detection.stale_issues
+        _try("close_issue", str(i.id), lambda i=i: actuator.close_stale_issue(repo, i))
+        for i in detection.stale_issues
     ]
     report = build_report(
         score, score_history(storage, repo),
         target=cfg.report_target,
         pr_results=pr_results, issue_results=issue_results,
     )
-    report_result = actuator.publish_report(repo, report)
+    report_result = _try("report", cfg.report_target,
+                         lambda: actuator.publish_report(repo, report))
     return ActResult(pr_results=pr_results, issue_results=issue_results,
                      report_result=report_result, report=report)
 

@@ -35,10 +35,19 @@ function.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .storage import Storage
+
+# An open issue older than this many days is "stale". 90d per the spec;
+# overridable via REPOHEALTH_STALE_AGE_DAYS so a fresh demo repo (whose issues
+# can't be 90 days old) can still exercise the stale-issue path. Read lazily
+# (not at import) so a value set only in .env — loaded later by Config — is
+# honored. Single source of truth — detect.py and the dashboard call this.
+def stale_age_days() -> int:
+    return int(os.getenv("REPOHEALTH_STALE_AGE_DAYS", "90"))
 
 # Spec weights. Kept as a module constant so the orchestrator/report can show
 # the exact breakdown, and so a test can assert they sum to 1.0.
@@ -107,10 +116,11 @@ def _clamp01(x: float) -> float:
 
 
 def _stale_signal(storage: Storage, repo: str) -> Signal:
+    threshold = stale_age_days()
     stale = _scalar(
         storage,
         "SELECT COUNT(*) FROM issues WHERE repo=? AND state='open' "
-        "AND age_days > 90",
+        f"AND age_days > {threshold}",  # validated int from env, not user input
         repo,
     )
     open_total = _scalar(
@@ -119,7 +129,7 @@ def _stale_signal(storage: Storage, repo: str) -> Signal:
     badness = (stale / open_total) if open_total else 0.0
     return Signal(
         key="stale_issues",
-        label="Stale issues (>90d open)",
+        label=f"Stale issues (>{threshold}d open)",
         weight=WEIGHTS["stale_issues"],
         raw=stale,
         detail=f"{int(stale)} of {int(open_total)} open issues stale",

@@ -74,6 +74,11 @@ class ComposioGitHubConnector(GitHubConnector):
             return None
 
     def _exec(self, slug: str, **arguments: Any) -> Any:
+        # SDK 1.x: tools.execute reads its schema cache and raises KeyError on the
+        # custom-tools fallback unless the slug was fetched first. Prime it.
+        schemas = self._client.tools._tool_schemas
+        if slug not in schemas:
+            schemas[slug] = self._client.tools.get_raw_composio_tool_by_slug(slug)
         kwargs: dict[str, Any] = {"arguments": arguments, "user_id": self._user_id}
         if self._version:
             kwargs["version"] = self._version

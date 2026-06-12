@@ -58,18 +58,33 @@ class HttpVersionRegistry(VersionRegistry):  # pragma: no cover - network
         return self._cache[key]
 
     @staticmethod
+    def _ssl_context():
+        """A verifying SSL context with a real CA bundle. macOS' framework Python
+        ships no system roots for urllib, so fall back to certifi when present;
+        only as a last resort use the (empty) default context."""
+        import ssl
+
+        try:
+            import certifi
+
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            return ssl.create_default_context()
+
+    @staticmethod
     def _fetch(ecosystem: str, name: str) -> str | None:
         import json
         import urllib.request
 
+        ctx = HttpVersionRegistry._ssl_context()
         try:
             if ecosystem == "pypi":
                 url = f"https://pypi.org/pypi/{name}/json"
-                with urllib.request.urlopen(url, timeout=10) as r:
+                with urllib.request.urlopen(url, timeout=10, context=ctx) as r:
                     return json.load(r)["info"]["version"]
             if ecosystem == "npm":
                 url = f"https://registry.npmjs.org/{name}/latest"
-                with urllib.request.urlopen(url, timeout=10) as r:
+                with urllib.request.urlopen(url, timeout=10, context=ctx) as r:
                     return json.load(r)["version"]
         except Exception:
             return None

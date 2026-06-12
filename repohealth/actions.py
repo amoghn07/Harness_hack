@@ -19,6 +19,8 @@ REPOHEALTH_ACTIONS=composio.
 from __future__ import annotations
 
 import abc
+import base64
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -71,6 +73,55 @@ def pr_body(dep: OutdatedDep) -> str:
         f"Edited file: `{dep.source_file}`\n\n"
         f"_Opened automatically by RepoHealth._"
     )
+
+
+def bump_manifest(content: str, dep: OutdatedDep) -> str:
+    """Return `content` with `dep`'s version line bumped current_ver -> latest_ver.
+
+    Targets just this package's pin so unrelated versions are untouched; any npm
+    range operator (^ ~ >=) is preserved. Returns the input unchanged if no
+    matching pin is found (caller treats that as "nothing to commit")."""
+    if not dep.current_ver or not dep.latest_ver:
+        return content
+    if dep.ecosystem == "npm":
+        # "<name>": "<spec>" — replace the version inside the spec, keep operator.
+        pattern = re.compile(
+            r'("' + re.escape(dep.name) + r'"\s*:\s*")([^"]*)(")'
+        )
+
+        def _repl(m: re.Match) -> str:
+            return m.group(1) + m.group(2).replace(dep.current_ver, dep.latest_ver) + m.group(3)
+
+        new, n = pattern.subn(_repl, content)
+        return new if n else content
+    # pypi / requirements.txt — bump the pinned `name==ver` line.
+    pattern = re.compile(
+        r'(^' + re.escape(dep.name) + r'\s*==\s*)' + re.escape(dep.current_ver),
+        re.MULTILINE,
+    )
+    new, n = pattern.subn(lambda m: m.group(1) + dep.latest_ver, content)
+    return new if n else content
+
+
+def _file_sha_and_text(data: Any) -> tuple[str | None, str | None]:
+    """Pull (blob sha, decoded text) out of a GITHUB_GET_REPOSITORY_CONTENT payload.
+
+    Mirrors the connector's tolerance for the toolkit nesting content under a
+    `content` wrapper key."""
+    node = data
+    if isinstance(data, dict) and isinstance(data.get("content"), dict):
+        node = data["content"]
+    if not isinstance(node, dict):
+        return None, None
+    sha = node.get("sha")
+    raw, enc = node.get("content"), node.get("encoding")
+    if enc == "base64" and isinstance(raw, str):
+        text = base64.b64decode(raw).decode("utf-8", errors="replace")
+    elif isinstance(raw, str):
+        text = raw
+    else:
+        text = None
+    return sha, text
 
 
 class Actuator(abc.ABC):
@@ -137,7 +188,7 @@ class ComposioActuator(Actuator):  # pragma: no cover - needs creds + connection
 
     PR flow (GitHub has no one-shot "open PR from a change"):
       1. GITHUB_GET_A_REFERENCE        -> base branch head SHA
-      2. GITHUB_CREATE_A_REF           -> create refs/heads/bot/bump-{pkg}-{ver}
+      2. GITHUB_CREATE_A_REFERENCE     -> create refs/heads/bot/bump-{pkg}-{ver}
       3. GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS -> commit the bumped manifest
       4. GITHUB_CREATE_A_PULL_REQUEST  -> open the PR (body = changelog summary)
     """
@@ -155,11 +206,33 @@ class ComposioActuator(Actuator):  # pragma: no cover - needs creds + connection
         self._cfg = cfg
         self._client = Composio(api_key=cfg.composio_api_key)
         self._user_id = cfg.composio_user_id
+        # Manual execution requires an explicit toolkit version ("latest" is
+        # rejected); resolve it once, allow an env pin (mirrors the connector).
+        import os
+        self._version = os.getenv("COMPOSIO_GITHUB_VERSION") or self._resolve_version()
+
+    def _resolve_version(self) -> str | None:
+        try:
+            return self._client.toolkits.get("github").meta.version
+        except Exception:
+            return None
 
     def _exec(self, slug: str, **arguments: Any) -> Any:
-        resp = self._client.tools.execute(
-            slug, arguments=arguments, user_id=self._user_id
-        )
+        # SDK 1.x: tools.execute reads its schema cache and raises KeyError on the
+        # custom-tools fallback unless the slug was fetched first. Prime it.
+        schemas = self._client.tools._tool_schemas
+        if slug not in schemas:
+            schemas[slug] = self._client.tools.get_raw_composio_tool_by_slug(slug)
+        kwargs: dict[str, Any] = {"arguments": arguments, "user_id": self._user_id}
+        if self._version:
+            kwargs["version"] = self._version
+        else:
+            kwargs["dangerously_skip_version_check"] = True
+        resp = self._client.tools.execute(slug, **kwargs)
+        if isinstance(resp, dict):
+            if not resp.get("successful", True):
+                raise RuntimeError(f"{slug} failed: {resp.get('error')}")
+            return resp.get("data")
         if not getattr(resp, "successful", True):
             raise RuntimeError(f"{slug} failed: {getattr(resp, 'error', resp)}")
         return getattr(resp, "data", resp)
@@ -171,13 +244,28 @@ class ComposioActuator(Actuator):  # pragma: no cover - needs creds + connection
             "GITHUB_GET_A_REFERENCE", owner=owner, repo=name, ref=f"heads/{base}"
         )["object"]["sha"]
         self._exec(
-            "GITHUB_CREATE_A_REF", owner=owner, repo=name,
+            "GITHUB_CREATE_A_REFERENCE", owner=owner, repo=name,
             ref=f"refs/heads/{dep.branch}", sha=head_sha,
         )
-        # A real bump edits dep.source_file; the read/transform/commit of the
-        # manifest line is the one piece left to wire per ecosystem.
-        # self._exec("GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS", owner=owner,
-        #            repo=name, path=dep.source_file, branch=dep.branch, ...)
+        # Commit the bumped manifest onto the branch so the PR has a real diff
+        # (GitHub rejects a PR whose head == base with "no commits between").
+        file_data = self._exec(
+            "GITHUB_GET_REPOSITORY_CONTENT", owner=owner, repo=name,
+            path=dep.source_file, ref=dep.branch,
+        )
+        file_sha, original = _file_sha_and_text(file_data)
+        bumped = bump_manifest(original or "", dep)
+        if not original or bumped == original or not file_sha:
+            raise RuntimeError(
+                f"could not bump {dep.name} {dep.current_ver}->{dep.latest_ver} "
+                f"in {dep.source_file} (no matching pin found)"
+            )
+        self._exec(
+            "GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS", owner=owner, repo=name,
+            path=dep.source_file, branch=dep.branch, sha=file_sha,
+            message=f"bot: bump {dep.name} to {dep.latest_ver}",
+            content=base64.b64encode(bumped.encode("utf-8")).decode("ascii"),
+        )
         pr = self._exec(
             "GITHUB_CREATE_A_PULL_REQUEST", owner=owner, repo=name,
             title=f"bot: bump {dep.name} to {dep.latest_ver}",

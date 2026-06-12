@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from .config import Config
 from .connectors import GitHubConnector, RepoSnapshot
@@ -131,9 +132,12 @@ def _snapshot_to_events(snap: RepoSnapshot, deps: list[Dep]) -> list[Event]:
     for r in snap.ci_runs:
         events.append(Event(snap.repo, "ci_run", r.timestamp,
                             {"branch": r.branch, "status": r.status}))
-    # Deps have no natural timestamp; stamp them with the snapshot's newest CI
-    # time (a reasonable "as observed at" marker) or fall back to None handling.
-    observed = max((r.timestamp for r in snap.ci_runs), default=None)
+    # Deps have no natural timestamp; stamp them "as observed at" — newest CI run,
+    # else newest issue, else now. A fresh repo may have no CI runs, so the prior
+    # CI-only fallback left these None and violated the NOT NULL timestamp column.
+    candidates = [r.timestamp for r in snap.ci_runs if r.timestamp]
+    candidates += [i.created_at for i in snap.issues if i.created_at]
+    observed = max(candidates) if candidates else datetime.now(timezone.utc).isoformat()
     for e in events:
         if e.event_type == "dependency" and e.timestamp is None:
             e.timestamp = observed

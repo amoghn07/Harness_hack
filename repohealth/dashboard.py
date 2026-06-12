@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlparse
 from .config import Config
 from .detect import _labels
 from .ingest import build_storage
-from .scoring import score_repo
+from .scoring import score_repo, stale_age_days
 from .storage import Storage
 
 
@@ -56,7 +56,7 @@ def repo_summary(storage: Storage, repo: str) -> dict:
         "SELECT COUNT(*) FROM deps WHERE repo=? AND outdated=1", [repo])[0][0]
     stale = storage.query(
         "SELECT COUNT(*) FROM issues WHERE repo=? AND state='open' "
-        "AND age_days > 90", [repo])[0][0]
+        f"AND age_days > {stale_age_days()}", [repo])[0][0]
     return {
         "repo": repo,
         "latest_score": hist[-1]["score"] if hist else None,
