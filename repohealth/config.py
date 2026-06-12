@@ -74,6 +74,21 @@ class Config:
     # use a region-prefixed inference-profile ID (e.g. us.anthropic.claude-opus-4-8).
     bedrock_model_id: str = "anthropic.claude-opus-4-8"
 
+    # ---- Phase 3: act & publish --------------------------------------------
+    # How the three real actions (bump PRs, stale-issue closes, weekly report)
+    # are executed. "mock" records intended actions offline; "composio" hits
+    # GitHub for real (reuses the same connected account as the connector).
+    actions_backend: str = "mock"
+
+    # Where the weekly report is published: a GitHub Discussion or a Notion page.
+    report_target: str = "github"          # "github" | "notion"
+    report_repo: str = ""                  # owner/name to post to; "" = monitored repo
+    github_discussion_category: str = ""   # category id for GITHUB_CREATE_A_DISCUSSION
+
+    # Notion (only when report_target == "notion").
+    notion_api_key: str = ""
+    notion_parent_page_id: str = ""
+
     @classmethod
     def from_env(cls) -> "Config":
         load_dotenv()
@@ -99,4 +114,10 @@ class Config:
             bedrock_model_id=os.getenv(
                 "BEDROCK_MODEL_ID", "anthropic.claude-opus-4-8"
             ),
+            actions_backend=os.getenv("REPOHEALTH_ACTIONS", "mock"),
+            report_target=os.getenv("REPOHEALTH_REPORT_TARGET", "github"),
+            report_repo=os.getenv("REPOHEALTH_REPORT_REPO", ""),
+            github_discussion_category=os.getenv("GITHUB_DISCUSSION_CATEGORY", ""),
+            notion_api_key=os.getenv("NOTION_API_KEY", ""),
+            notion_parent_page_id=os.getenv("NOTION_PARENT_PAGE_ID", ""),
         )

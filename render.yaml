@@ -26,6 +26,10 @@ services:
         value: clickhouse
       - key: REPOHEALTH_INFERENCE
         value: bedrock
+      - key: REPOHEALTH_ACTIONS
+        value: composio
+      - key: REPOHEALTH_REPORT_TARGET
+        value: github
       - key: REPOHEALTH_SCORE_THRESHOLD
         value: "60"
       # Secrets — set in the Render dashboard, never committed.
@@ -50,4 +54,6 @@ services:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: BEDROCK_MODEL_ID
+        sync: false
+      - key: GITHUB_DISCUSSION_CATEGORY
         sync: false

@@ -37,5 +37,13 @@ class Storage(abc.ABC):
         """Run a read query (used by Phase 2 scoring + the verify counts)."""
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def record_score(self, repo: str, score: int, timestamp) -> None:
+        """Append a health-score sample to the history.
+
+        Unlike the derived tables, this is append-only — Phase 3's weekly report
+        reads it back as the trend chart. `timestamp` is a datetime."""
+        raise NotImplementedError
+
     def close(self) -> None:  # optional override
         pass
