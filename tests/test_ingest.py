@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from repohealth.connectors.mock_github import MockGitHubConnector
-from repohealth.ingest import ingest_repo
+from repohealth.ingest import _is_outdated, ingest_repo
 from repohealth.parsers import parse_package_json, parse_requirements_txt
 from repohealth.registry import MockVersionRegistry
 from repohealth.storage.sqlite_store import SQLiteStorage
@@ -73,3 +73,11 @@ def test_outdated_detection():
     reg = MockVersionRegistry()
     assert reg.latest("pypi", "requests") == "2.32.3"
     assert reg.latest("npm", "axios") == "1.6.0"
+
+
+def test_is_outdated_semver():
+    assert _is_outdated("4.17.1", "4.19.2") is True       # newer available
+    assert _is_outdated("1.6.0", "1.6.0") is False        # current
+    assert _is_outdated("2.0.0", "1.3.8") is False        # pinned ahead of latest
+    assert _is_outdated("2.5.0-rc1", "2.5.0") is False    # prerelease vs release
+    assert _is_outdated("", "1.0.0") is False             # unknown current
