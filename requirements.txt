@@ -12,6 +12,11 @@ clickhouse-connect>=0.7.0
 # Phase 2: remediation inference via AWS Bedrock (only when REPOHEALTH_INFERENCE=bedrock)
 boto3>=1.34.0
 
+# Phase 2: tracing / evaluation observability (only when REPOHEALTH_TRACING=langfuse).
+# Logs each remediation generation + the deterministic eval scores to Langfuse;
+# strictly observability — the safety gate runs regardless of whether this is set.
+langfuse>=3.0.0
+
 # Phase 2: scheduled orchestration of fetch -> score -> decide -> act.
 # Scoring/detection/orchestration themselves are stdlib-only; Guild AI is the
 # workflow runner used to drive the cycle on a schedule.
