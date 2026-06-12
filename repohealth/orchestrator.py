@@ -22,7 +22,8 @@ from datetime import datetime
 from .bedrock import Analysis, build_analyzer
 from .config import Config
 from .detect import Detection, detect
-from .ingest import build_connector, build_storage, ingest_repo
+from .evaluate import EvalResult, evaluate
+from .ingest import build_connector, build_registry, build_storage, ingest_repo
 from .scoring import HealthScore, score_repo
 from .storage import Storage
 
@@ -33,6 +34,8 @@ class CycleResult:
     score: HealthScore
     detection: Detection
     analysis: Analysis | None   # None when the repo was healthy (gate not tripped)
+    evaluation: EvalResult | None = None  # set when analysis ran — the safety check
+    action_blocked: bool = False  # True if the plan failed the gate (don't let Phase 3 act)
     acted: bool = False         # Phase 3 will flip this once actions execute
 
     @property
@@ -62,7 +65,7 @@ def run_cycle(
         # 1. fetch — refresh the agent's memory from the source of truth.
         if not skip_fetch:
             connector = build_connector(cfg)
-            ingest_repo(repo, connector, storage)
+            ingest_repo(repo, connector, storage, build_registry(cfg))
         else:
             storage.init_schema()
 
@@ -72,13 +75,22 @@ def run_cycle(
         # 3. decide — who are the offenders, and is escalation warranted?
         detection = detect(storage, score, cfg.score_threshold)
         analysis: Analysis | None = None
+        evaluation: EvalResult | None = None
+        action_blocked = False
         if detection.needs_attention and not detection.is_empty:
             analyzer = build_analyzer(cfg)
             analysis = analyzer.analyze(detection)
+            # Grade the plan against ground truth (the Detection). This is the
+            # safety gate: a hallucinated or malformed action must not reach
+            # Phase 3, which acts on real GitHub with no human in the loop.
+            evaluation = evaluate(detection, analysis)
+            action_blocked = not evaluation.safe_to_act
 
-        # 4. act — Phase 3 consumes `analysis` + `detection`. Left unwired here.
+        # 4. act — Phase 3 consumes `analysis` + `detection` only when the plan
+        # passed the gate. Left unwired here; `action_blocked` is the interlock.
         return CycleResult(repo=repo, score=score, detection=detection,
-                           analysis=analysis)
+                           analysis=analysis, evaluation=evaluation,
+                           action_blocked=action_blocked)
     finally:
         if own_storage:
             storage.close()

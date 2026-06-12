@@ -110,6 +110,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"  {result.analysis.summary}")
         for a in result.analysis.actions:
             print(f"   [{a.priority}] {a.kind} {a.target}: {a.rationale}")
+    if result.evaluation is not None:
+        e = result.evaluation
+        print("\nPlan evaluation (graded against the detection):")
+        print(f"  groundedness    : {e.groundedness:.0%}")
+        print(f"  coverage        : {e.coverage:.0%}")
+        print(f"  schema validity : {e.schema_validity:.0%}")
+        if e.ungrounded:
+            print(f"  ungrounded targets : {e.ungrounded}")
+        if e.uncovered:
+            print(f"  uncovered offenders: {e.uncovered}")
+        verdict = "BLOCKED — plan not safe to act on" if result.action_blocked \
+            else "PASS — safe for Phase 3 to act"
+        print(f"  gate            : {verdict}")
     return 0
 
 

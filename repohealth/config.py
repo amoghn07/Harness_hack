@@ -73,6 +73,19 @@ class Config:
     # Bedrock Claude model ID. Defaults to the latest Opus; many accounts must
     # use a region-prefixed inference-profile ID (e.g. us.anthropic.claude-opus-4-8).
     bedrock_model_id: str = "anthropic.claude-opus-4-8"
+    # Bedrock long-term API key (the `ABSK...` bearer token). When set, boto3
+    # signs bedrock-runtime calls with it via AWS_BEARER_TOKEN_BEDROCK — no
+    # AWS_ACCESS_KEY_ID/SECRET pair required.
+    aws_bearer_token_bedrock: str = ""
+
+    # ---- Phase 2: tracing / evaluation observability -----------------------
+    # "none" | "langfuse". When "langfuse", the analyzer is wrapped to log each
+    # generation + the deterministic eval scores. Purely observability — the
+    # safety gate runs regardless.
+    tracing_backend: str = "none"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -99,4 +112,9 @@ class Config:
             bedrock_model_id=os.getenv(
                 "BEDROCK_MODEL_ID", "anthropic.claude-opus-4-8"
             ),
+            aws_bearer_token_bedrock=os.getenv("AWS_BEARER_TOKEN_BEDROCK", ""),
+            tracing_backend=os.getenv("REPOHEALTH_TRACING", "none"),
+            langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
+            langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
+            langfuse_host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
         )

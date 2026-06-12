@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import abc
 import json
+import os
 from dataclasses import dataclass, field
 
 from .config import Config
@@ -132,6 +133,12 @@ class BedrockAnalyzer(BedrockAnalyzerBase):  # pragma: no cover - needs AWS cred
                 "boto3 is not installed. `pip install boto3` or use "
                 "REPOHEALTH_INFERENCE=mock."
             ) from exc
+        # A Bedrock API key (ABSK… bearer token) is consumed by botocore via this
+        # env var — it takes the place of an access-key/secret pair.
+        if cfg.aws_bearer_token_bedrock:
+            os.environ.setdefault(
+                "AWS_BEARER_TOKEN_BEDROCK", cfg.aws_bearer_token_bedrock
+            )
         kwargs: dict = {"region_name": cfg.aws_region}
         if cfg.aws_access_key_id and cfg.aws_secret_access_key:
             kwargs["aws_access_key_id"] = cfg.aws_access_key_id
@@ -191,7 +198,18 @@ def _parse_analysis(text: str, model: str) -> Analysis:
 
 def build_analyzer(cfg: Config) -> BedrockAnalyzerBase:
     if cfg.inference_backend == "mock":
-        return MockBedrockAnalyzer()
-    if cfg.inference_backend == "bedrock":
-        return BedrockAnalyzer(cfg)
-    raise ValueError(f"Unknown inference backend: {cfg.inference_backend!r}")
+        base: BedrockAnalyzerBase = MockBedrockAnalyzer()
+    elif cfg.inference_backend == "bedrock":
+        base = BedrockAnalyzer(cfg)
+    else:
+        raise ValueError(f"Unknown inference backend: {cfg.inference_backend!r}")
+
+    if cfg.tracing_backend == "langfuse":
+        # Lazy import: tracing.py imports this module, so importing it at module
+        # load would be circular.
+        from .tracing import LangfuseAnalyzer
+
+        return LangfuseAnalyzer(base, cfg)
+    if cfg.tracing_backend != "none":
+        raise ValueError(f"Unknown tracing backend: {cfg.tracing_backend!r}")
+    return base
