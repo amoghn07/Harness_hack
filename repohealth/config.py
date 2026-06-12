@@ -70,9 +70,11 @@ class Config:
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
-    # Bedrock Claude model ID. Defaults to the latest Opus; many accounts must
-    # use a region-prefixed inference-profile ID (e.g. us.anthropic.claude-opus-4-8).
-    bedrock_model_id: str = "anthropic.claude-opus-4-8"
+    # Bedrock model ID, used with the provider-agnostic Converse API. Defaults
+    # to Amazon Nova Pro, which is generally available with no use-case form.
+    # Any Converse-capable model works (Anthropic models need their use-case
+    # form submitted and often a region-prefixed inference-profile ID).
+    bedrock_model_id: str = "amazon.nova-pro-v1:0"
     # Bedrock long-term API key (the `ABSK...` bearer token). When set, boto3
     # signs bedrock-runtime calls with it via AWS_BEARER_TOKEN_BEDROCK — no
     # AWS_ACCESS_KEY_ID/SECRET pair required.
@@ -131,7 +133,10 @@ class Config:
             tracing_backend=os.getenv("REPOHEALTH_TRACING", "none"),
             langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
             langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
-            langfuse_host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+            langfuse_host=os.getenv(
+                "LANGFUSE_HOST",
+                os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
+            ),
             actions_backend=os.getenv("REPOHEALTH_ACTIONS", "mock"),
             report_target=os.getenv("REPOHEALTH_REPORT_TARGET", "github"),
             report_repo=os.getenv("REPOHEALTH_REPORT_REPO", ""),

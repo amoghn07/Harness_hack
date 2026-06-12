@@ -66,8 +66,9 @@ class LangfuseAnalyzer(BedrockAnalyzerBase):
         the except clause keeps the pipeline running and logs the mismatch."""
         result = evaluate(detection, analysis)
         try:
-            gen = self._client.start_generation(
+            gen = self._client.start_observation(
                 name="remediation_plan",
+                as_type="generation",
                 model=analysis.model,
                 input=_detection_brief(detection),
                 metadata={"repo": detection.repo, "score": detection.score},

@@ -9,9 +9,12 @@ actions (PRs, issue closes, the weekly report).
 
 Two backends, mock-by-default like the rest of the project:
   * MockBedrockAnalyzer  — deterministic, offline, no creds. Default.
-  * BedrockAnalyzer      — real Claude via Bedrock's Messages API (needs AWS
-                           creds + a model-enabled region). Guided stub: the
-                           exact request shape is written inline.
+  * BedrockAnalyzer      — real inference via Bedrock's provider-agnostic
+                           Converse API (needs AWS creds + a model-enabled
+                           region). The default model is Amazon Nova, which is
+                           generally available with no use-case form; any
+                           Converse-capable model works by setting
+                           BEDROCK_MODEL_ID.
 
 Flip with REPOHEALTH_INFERENCE=bedrock once AWS credentials exist.
 """
@@ -26,16 +29,16 @@ from dataclasses import dataclass, field
 from .config import Config
 from .detect import Detection
 
-# Bedrock pins the Anthropic Messages API to this version string (not a date you
-# pick — it's the Bedrock-side contract). See the Claude-on-Bedrock docs.
-_ANTHROPIC_BEDROCK_VERSION = "bedrock-2023-05-31"
-
 _SYSTEM_PROMPT = (
     "You are a repository-health remediation planner. You receive a repo's "
     "health score and the specific issues behind it. Produce a concise, "
     "prioritized action plan. Respond ONLY with JSON matching this shape: "
     '{"summary": str, "actions": [{"kind": "bump_dep"|"close_issue"|"other", '
-    '"target": str, "rationale": str, "priority": "high"|"medium"|"low"}]}.'
+    '"target": str, "rationale": str, "priority": "high"|"medium"|"low"}]}. '
+    "The `target` field MUST be an exact identifier with no extra text: for "
+    'bump_dep use "ecosystem:name" exactly as listed (e.g. "npm:express"), '
+    "NOT the version or any description; for close_issue use only the bare "
+    'numeric issue id (e.g. "101"). Put versions and reasoning in `rationale`.'
 )
 
 
@@ -117,12 +120,13 @@ class MockBedrockAnalyzer(BedrockAnalyzerBase):
 
 
 class BedrockAnalyzer(BedrockAnalyzerBase):  # pragma: no cover - needs AWS creds
-    """Real Claude-on-Bedrock analyzer.
+    """Real Bedrock analyzer over the provider-agnostic Converse API.
 
-    Uses boto3's `bedrock-runtime` `invoke_model` with the Anthropic Messages
-    API body. Credentials resolve via the standard boto3 chain (env vars,
-    shared profile, instance role); the explicit keys in Config take precedence
-    when set.
+    Uses boto3's `bedrock-runtime` `converse`, so the same request shape works
+    for Amazon Nova (the default), Anthropic, Meta, Mistral, etc. — switching
+    providers is just a BEDROCK_MODEL_ID change, no body rewrite. Credentials
+    resolve via the standard boto3 chain (env vars, shared profile, instance
+    role); the explicit keys in Config take precedence when set.
     """
 
     def __init__(self, cfg: Config) -> None:
@@ -149,23 +153,20 @@ class BedrockAnalyzer(BedrockAnalyzerBase):  # pragma: no cover - needs AWS cred
         self._model_id = cfg.bedrock_model_id
 
     def analyze(self, detection: Detection) -> Analysis:
-        body = {
-            "anthropic_version": _ANTHROPIC_BEDROCK_VERSION,
-            "max_tokens": 1024,
-            "system": _SYSTEM_PROMPT,
-            "messages": [
-                {"role": "user", "content": _detection_brief(detection)}
+        resp = self._client.converse(
+            modelId=self._model_id,
+            system=[{"text": _SYSTEM_PROMPT}],
+            messages=[
+                {"role": "user",
+                 "content": [{"text": _detection_brief(detection)}]}
             ],
-        }
-        resp = self._client.invoke_model(
-            modelId=self._model_id, body=json.dumps(body)
+            inferenceConfig={"maxTokens": 1024, "temperature": 0},
         )
-        payload = json.loads(resp["body"].read())
-        # Messages API: content is a list of blocks; take the first text block.
+        # Converse: output.message.content is a list of blocks; take first text.
         text = ""
-        for block in payload.get("content", []):
-            if block.get("type") == "text":
-                text = block.get("text", "")
+        for block in resp.get("output", {}).get("message", {}).get("content", []):
+            if "text" in block:
+                text = block["text"]
                 break
         return _parse_analysis(text, model=self._model_id)
 
